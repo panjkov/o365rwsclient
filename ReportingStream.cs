@@ -10,10 +10,11 @@ namespace Microsoft.Office365.ReportingWebServiceClient
         #region Privates
 
         private ReportingContext reportingContext;
-        private string streamIdentifier = string.Empty;
         private ReportProvider reportProvider;
         private Type reportType;
-
+        private string streamIdentifier = string.Empty;
+        private string progressFilePath = string.Empty;
+        
         #endregion Privates
 
         #region Constructors
@@ -24,10 +25,11 @@ namespace Microsoft.Office365.ReportingWebServiceClient
         /// <param name="serviceEndpoint"></param>
         /// <param name="userName"></param>
         /// <param name="password"></param>
-        public ReportingStream(ReportingContext context, string reportType, string streamIdentifier)
+        public ReportingStream(ReportingContext context, string reportType, string streamIdentifier, string progressFilePath = null)
         {
             this.reportingContext = context;
             this.streamIdentifier = streamIdentifier;
+            this.progressFilePath = progressFilePath;
             this.reportProvider = new ReportProvider(context.WebServiceUrl, context.UserName, context.Password, context.TraceLogger);
             this.reportType = Type.GetType("Microsoft.Office365.ReportingWebServiceClient.TenantReport." + reportType);
 
@@ -95,6 +97,9 @@ namespace Microsoft.Office365.ReportingWebServiceClient
                 reportingContext.TraceLogger.LogInformation(string.Format("Retrieved [{0}] rows of data...", resultNodes.Count));
             }
 
+            StreamProgress progress = new StreamProgress(this.progressFilePath, streamIdentifier, filter.QueryRange.EndDate, false);
+            progress.SaveProgress();
+
             return totalResultCount;
         }
 
@@ -125,18 +130,13 @@ namespace Microsoft.Office365.ReportingWebServiceClient
 
             visitor.VisitBatchReport();
 
-            StreamProgress progress = new StreamProgress(streamIdentifier, lastTimeStamp);
+            StreamProgress progress = new StreamProgress(this.progressFilePath, streamIdentifier, lastTimeStamp, true);
             progress.SaveProgress();
 
             return list;
         }
 
         #endregion Private methods
-
-        //public void setCredential(string userName, string password)
-        //{
-        //    this.reportProvider.setCredential(userName, password);
-        //}
 
         /// <summary>
         /// This is a simple method that tries to fetch 1 record of the specified report
@@ -180,7 +180,8 @@ namespace Microsoft.Office365.ReportingWebServiceClient
         /// </summary>
         public void ClearProgress()
         {
-            StreamProgress.ClearProgress(this.streamIdentifier);
+            StreamProgress progress = new StreamProgress(this.progressFilePath, this.streamIdentifier);
+            progress.ClearProgress();
         }
 
         /// <summary>
@@ -205,13 +206,15 @@ namespace Microsoft.Office365.ReportingWebServiceClient
             queryFilter.QueryRange.EndDate = this.reportingContext.ToDateTime;
             queryFilter.CustomFilter = this.reportingContext.DataFilter;
 
-            StreamProgress progress = StreamProgress.GetProgress(streamIdentifier);
+            StreamProgress progress = new StreamProgress(this.progressFilePath, this.streamIdentifier);
+            progress = progress.GetProgress();
+
             DateTime progressTimestamp = progress.TimeStamp;
+
             if (queryFilter.QueryRange.StartDate < progressTimestamp)
-            {
                 queryFilter.QueryRange.StartDate = progressTimestamp;
-                queryFilter.ExcludeStartItem = true;
-            }
+
+            queryFilter.ExcludeStartItem = progress.ExcludeStartItem;
 
             int totalCount = RetrieveData(visitor, queryFilter);
 
